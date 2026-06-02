@@ -1,0 +1,60 @@
+# The name of the workflow as it will appear in the GitHub Actions tab
+name: Fetch API and Commit Result
+
+on:
+  # Automatically triggers the workflow on a schedule (Cron syntax)
+  schedule:
+    # This runs every day at midnight UTC. 
+    # You can change this using crontab syntax (e.g., '0 */12 * * *' for every 12 hours)
+    - cron: '0 0 * * *'
+  
+  # Allows you to trigger this workflow manually from the GitHub website
+  workflow_dispatch:
+
+jobs:
+  # Define a job named "fetch-and-commit"
+  fetch-and-commit:
+    runs-on: ubuntu-latest
+    
+    # Explicitly grant write access to repository contents.
+    # This is required so the GitHub Actions runner can push the new commit back to your repo.
+    permissions:
+      contents: write
+
+    steps:
+    # Step 1: Download a copy of your repository onto the GitHub runner
+    - name: Check out repository
+      uses: actions/checkout@v4
+
+    # Step 2: Make the authenticated POST request to your API
+    - name: Fetch data from API
+      env:
+        # Securely injects your API secret token into a temporary environment variable ($API_TOKEN)
+        API_TOKEN: ${{ secrets.MY_API_TOKEN }}
+      run: |
+        curl -s -X POST \
+          -H "Authorization: Bearer $API_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{"flowId": "toby-sign-in"}' \
+          "https://webhook.site/ba3dfcb0-77fe-45ee-8414-9af34356cd16" -o data-results.json
+
+    # Step 3: Check if the file changed, and commit it if it did
+    - name: Commit and push changes
+      run: |
+        # Set up a generic Git user identity using the official GitHub Actions bot info
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        
+        # Stage the file that contains the API response
+        git add data-results.json
+        
+        # Check if there are actual differences between the new file and the old one.
+        # This prevents the workflow from failing/throwing errors if the API data hasn't changed.
+        if ! git diff --cached --quiet; then
+          # [skip ci] in the message tells GitHub NOT to trigger another workflow run from this commit,
+          # successfully preventing an infinite loop of automated builds.
+          git commit -m "chore: update API data [skip ci]"
+          git push
+        else
+          echo "No changes detected in API response. Skipping commit."
+        fi
